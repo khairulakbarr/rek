@@ -534,42 +534,110 @@
       renderApp();
     }
 
-    function renderApp() {
-      const gridContainer = document.getElementById('accountCardsGrid');
-      gridContainer.innerHTML = '';
+   function renderApp() {
+  const gridContainer = document.getElementById('accountCardsGrid');
+  gridContainer.innerHTML = '';
 
-      let grandTotalOverall = 0;
+  let grandTotalOverall = 0;
 
-      accounts.forEach(acc => {
-        grandTotalOverall += acc.currentBalance;
-        const isActive = acc.id === currentAccountId;
+  // 1. HITUNG ULANG SALDO & TOTAL TRANSAKSI SECARA DINAMIS
+  accounts.forEach(acc => {
+    const accTx = transactions.filter(t => t.accountId === acc.id);
+    const totalDebit = accTx.reduce((sum, t) => sum + (parseFloat(t.debit) || 0), 0);
+    const totalCredit = accTx.reduce((sum, t) => sum + (parseFloat(t.credit) || 0), 0);
+    const currentBalance = (parseFloat(acc.initialBalance) || 0) + totalDebit - totalCredit;
 
-        const card = document.createElement('div');
-        card.onclick = () => selectAccount(acc.id);
-        card.className = `cursor-pointer p-4 rounded-2xl border transition-all duration-200 relative flex flex-col justify-between ${
-          isActive 
-            ? 'bg-slate-800/90 border-indigo-500 shadow-lg ring-1 ring-indigo-500' 
-            : 'bg-slate-800/30 border-slate-700/50 hover:border-slate-600 hover:bg-slate-800/50'
-        }`;
+    // Simpan nilai hasil hitungan ke objek account
+    acc.totalDebit = totalDebit;
+    acc.totalCredit = totalCredit;
+    acc.currentBalance = currentBalance;
 
-        card.innerHTML = `
-          <div>
-            <div class="flex items-center justify-between gap-2 mb-1">
-              <span class="text-sm font-bold text-white truncate">${acc.name}</span>
-              ${isActive ? '<span class="bg-indigo-500/20 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-500/30">Aktif</span>' : ''}
-            </div>
-            <div class="text-[11px] font-mono text-slate-400 mb-2.5">No. Rek: ${acc.accountNumber || '-'}</div>
-            <div class="text-[11px] text-slate-400 mb-0.5">Sisa Saldo</div>
-            <div class="text-lg font-bold font-mono text-white">${formatRupiah(acc.currentBalance)}</div>
-          </div>
-          <div class="mt-3 pt-2.5 border-t border-slate-700/40 flex justify-between text-[10px] text-slate-400">
-            <span>Masuk: <strong class="text-emerald-400">${formatRupiah(acc.totalDebit)}</strong></span>
-            <span>Keluar: <strong class="text-rose-400">${formatRupiah(acc.totalCredit)}</strong></span>
-          </div>
-        `;
+    grandTotalOverall += currentBalance;
 
-        gridContainer.appendChild(card);
-      });
+    const isActive = acc.id === currentAccountId;
+
+    const card = document.createElement('div');
+    card.onclick = () => selectAccount(acc.id);
+    card.className = `cursor-pointer p-4 rounded-2xl border transition-all duration-200 relative flex flex-col justify-between ${
+      isActive 
+        ? 'bg-slate-800/90 border-indigo-500 shadow-lg ring-1 ring-indigo-500' 
+        : 'bg-slate-800/30 border-slate-700/50 hover:border-slate-600 hover:bg-slate-800/50'
+    }`;
+
+    card.innerHTML = `
+      <div>
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <span class="text-sm font-bold text-white truncate">${acc.name}</span>
+          ${isActive ? '<span class="bg-indigo-500/20 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-500/30">Aktif</span>' : ''}
+        </div>
+        <div class="text-[11px] font-mono text-slate-400 mb-2.5">No. Rek: ${acc.accountNumber || '-'}</div>
+        <div class="text-[11px] text-slate-400 mb-0.5">Sisa Saldo</div>
+        <div class="text-lg font-bold font-mono text-white">${formatRupiah(acc.currentBalance)}</div>
+      </div>
+      <div class="mt-3 pt-2.5 border-t border-slate-700/40 flex justify-between text-[10px] text-slate-400">
+        <span>Masuk: <strong class="text-emerald-400">${formatRupiah(acc.totalDebit)}</strong></span>
+        <span>Keluar: <strong class="text-rose-400">${formatRupiah(acc.totalCredit)}</strong></span>
+      </div>
+    `;
+
+    gridContainer.appendChild(card);
+  });
+
+  document.getElementById('displayTotalOverall').textContent = formatRupiah(grandTotalOverall);
+  document.getElementById('totalAccountsLabel').textContent = `${accounts.length} Rekening Terdaftar`;
+
+  const activeAccount = accounts.find(a => a.id === currentAccountId) || accounts[0];
+  if (!activeAccount) return;
+
+  document.getElementById('activeAccountSubtext').textContent = `Rekening Aktif: ${activeAccount.name} (${activeAccount.accountNumber || '-'})`;
+  document.getElementById('tableSubheader').textContent = `Mutasi Transaksi untuk ${activeAccount.name}`;
+  document.getElementById('activeAccCurrentBalance').textContent = formatRupiah(activeAccount.currentBalance);
+
+  // 2. RENDER TABEL TRANSAKSI
+  const tbody = document.getElementById('transactionTableBody');
+  tbody.innerHTML = '';
+
+  let filteredTx = transactions
+    .filter(t => t.accountId === activeAccount.id)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  let runningBalance = parseFloat(activeAccount.initialBalance) || 0;
+
+  const calculatedList = filteredTx.map(tx => {
+    runningBalance += ((parseFloat(tx.debit) || 0) - (parseFloat(tx.credit) || 0));
+    return { ...tx, sisaSaldo: runningBalance };
+  });
+
+  const displayList = [...calculatedList].reverse();
+
+  if (displayList.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="text-center py-12 text-slate-500">
+          Belum ada data transaksi di rekening <strong>${activeAccount.name}</strong>.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  displayList.forEach(tx => {
+    const tr = document.createElement('tr');
+    tr.className = "hover:bg-slate-800/40 transition border-b border-slate-700/30";
+    tr.innerHTML = `
+      <td class="py-3.5 px-4 font-mono text-xs text-slate-400 whitespace-nowrap">${formatDate(tx.date)}</td>
+      <td class="py-3.5 px-4 font-medium text-slate-200">${tx.description}</td>
+      <td class="py-3.5 px-4 text-right font-mono font-medium text-emerald-400">${tx.debit > 0 ? formatRupiah(tx.debit) : '-'}</td>
+      <td class="py-3.5 px-4 text-right font-mono font-medium text-rose-400">${tx.credit > 0 ? formatRupiah(tx.credit) : '-'}</td>
+      <td class="py-3.5 px-4 text-right font-mono font-bold text-white">${formatRupiah(tx.sisaSaldo)}</td>
+      <td class="py-3.5 px-4 text-center whitespace-nowrap space-x-1">
+        <button onclick="editTransaction('${tx.id}')" class="text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1 rounded-lg hover:bg-slate-700/50">Edit</button>
+        <button onclick="deleteTransaction('${tx.id}')" class="text-xs text-rose-400 hover:text-rose-300 px-2 py-1 rounded-lg hover:bg-slate-700/50">Hapus</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
       document.getElementById('displayTotalOverall').textContent = formatRupiah(grandTotalOverall);
       document.getElementById('totalAccountsLabel').textContent = `${accounts.length} Rekening Terdaftar`;
